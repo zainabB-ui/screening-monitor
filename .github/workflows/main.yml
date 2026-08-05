@@ -22,7 +22,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install playwright beautifulsoup4
+          python -m playwright install --with-deps chromium
 
       - name: Run monitor script
         env:
@@ -30,6 +32,20 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
         run: python monitor.py
+
+      # Uploads a screenshot + raw HTML of what Playwright actually saw,
+      # so you can open them and check whether it captured real listings,
+      # a placeholder message, or a bot-blocked page. Available for 7 days
+      # under the "Summary" tab of each workflow run.
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            debug_screenshot.png
+            debug_page.html
+          retention-days: 7
 
       - name: Commit updated state
         run: |
