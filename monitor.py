@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
 Monitors the Advance Screenings Washington, DC city page for new screening
-postings and emails an alert via Gmail SMTP when the listings change.
+postings and emails a plain-text alert via Gmail SMTP when a NEW screening
+row actually appears.
 
-HISTORY OF FIXES:
-1. Plain requests.get() missed JS-rendered content -> switched to Playwright.
-2. BeautifulSoup HTML parsing missed dynamic "Added" labels (e.g. "yesterday")
-   -> switched to Playwright's own rendered innerText.
-3. innerText flattened tables into a single squished text stream that was
-   hard to read in the email (columns ran together) -> this version queries
-   the actual <table> elements in the DOM directly, extracting each row as
-   separate cell values (Screening Type, City, Outlet, Added), and sends a
-   real HTML table in the email so columns stay aligned and readable.
+Combines fixes from all prior versions:
+1. Uses Playwright to render JS-driven content (plain requests.get() misses it).
+2. Extracts actual <table> rows as structured data (Screening Type, City,
+   Outlet, Added) instead of flattening to raw text, so nothing gets lost
+   or squished together.
+3. Emails plain text only, formatted as one labeled block per row -- no
+   HTML table, no single-column squish.
+4. Change detection ignores the "Added" column and row order when deciding
+   whether to send an email, since "3 days ago" ticking forward to "4 days
+   ago" is not a new posting and was causing false-positive emails (and,
+   as a side effect, unnecessary git pushes that were colliding with each
+   other). The "Added" value is still shown in the email for reference --
+   it's just not used to decide whether something is "new."
 
-State is stored as structured JSON (not raw text) so change-detection is
-based on actual row content, not on formatting/whitespace differences.
-
-Designed to run from GitHub Actions on a schedule. State is committed back
-to the repo by the workflow, so each run compares against the previous run.
+A row counts as new if its (Screening Type, City, Outlet, Movie) combo
+was not present in the previous run at all.
 """
 
 import os
@@ -38,8 +40,6 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 GMAIL_TO = os.environ.get("GMAIL_TO", GMAIL_USER)
 
-# JS run inside the browser to pull out each table as structured rows,
-# along with the nearest preceding heading/movie-title text for context.
 EXTRACT_TABLES_JS = """
 () => {
   function precedingHeading(el) {
@@ -80,7 +80,6 @@ def fetch_structured_data(url: str):
             ),
             viewport={"width": 1366, "height": 900},
         )
-
         try:
             page.goto(url, wait_until="networkidle", timeout=45000)
         except Exception as e:
@@ -88,7 +87,6 @@ def fetch_structured_data(url: str):
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
 
         page.wait_for_timeout(5000)
-
         print(f"Page title after render: {page.title()!r}")
 
         page.screenshot(path=DEBUG_SCREENSHOT, full_page=True)
@@ -103,78 +101,66 @@ def fetch_structured_data(url: str):
         return tables
 
 
-def normalize_for_diff(tables) -> str:
-    """Canonical JSON representation used purely for change detection,
-    independent of any display formatting."""
-    return json.dumps(tables, sort_keys=True, indent=2)
+def flatten_rows(tables):
+    """Turns the nested table structure into a flat list of row dicts,
+    tagging each with its table heading (usually the movie title) and
+    mapping cells to their header names when possible."""
+    flat = []
+    for tbl in tables:
+        heading = tbl.get("heading")
+        rows = tbl["rows"]
+        if not rows:
+            continue
+        headers = rows[0]
+        for row in rows[1:]:
+            row_dict = dict(zip(headers, row))
+            row_dict["_movie"] = heading
+            flat.append(row_dict)
+    return flat
 
 
-def load_previous_state():
+def identity_key(row: dict) -> str:
+    """Stable identity for a row, deliberately EXCLUDING the 'Added'
+    field so date drift alone never makes a row look 'new'."""
+    parts = [
+        row.get("_movie", ""),
+        row.get("Screening Type", ""),
+        row.get("City", ""),
+        row.get("Outlet", ""),
+    ]
+    return " | ".join(p.strip() for p in parts)
+
+
+def load_previous_rows():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
 
 
-def save_state(tables) -> None:
+def save_rows(rows) -> None:
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(tables, f, indent=2)
+        json.dump(rows, f, indent=2, sort_keys=True)
 
 
-def build_html_email(tables) -> str:
-    parts = ["<html><body style='font-family: Arial, sans-serif;'>"]
-    parts.append(f"<p>The Advance Screenings page for Washington, DC has new content:</p>")
-    parts.append(f"<p><a href='{URL}'>{URL}</a></p>")
-
-    for tbl in tables:
-        if tbl.get("heading"):
-            parts.append(f"<h3 style='margin-top:20px;'>{tbl['heading']}</h3>")
-        rows = tbl["rows"]
-        if not rows:
-            continue
-        parts.append(
-            "<table style='border-collapse:collapse; width:100%; margin-bottom:16px;'>"
-        )
-        for i, row in enumerate(rows):
-            tag = "th" if i == 0 else "td"
-            style = (
-                "border:1px solid #ccc; padding:6px 10px; text-align:left; "
-                + ("background:#f2f2f2; font-weight:bold;" if i == 0 else "")
-            )
-            parts.append("<tr>")
-            for cell in row:
-                parts.append(f"<{tag} style='{style}'>{cell}</{tag}>")
-            parts.append("</tr>")
-        parts.append("</table>")
-
-    parts.append("</body></html>")
-    return "\n".join(parts)
-
-
-def build_plain_text_email(tables) -> str:
-    """Readable fallback: one clearly labeled block per row instead of a
-    squished single line, in case the email client doesn't render HTML."""
+def build_plain_text_email(new_rows) -> str:
     lines = [
-        "The Advance Screenings page for Washington, DC has new content:",
+        "New screening(s) found for Washington, DC:",
         URL,
         "",
     ]
-    for tbl in tables:
-        if tbl.get("heading"):
-            lines.append(f"=== {tbl['heading']} ===")
-        rows = tbl["rows"]
-        if not rows:
-            continue
-        headers = rows[0]
-        for row in rows[1:]:
-            lines.append("-" * 40)
-            for header, value in zip(headers, row):
-                lines.append(f"{header}: {value}")
-        lines.append("")
+    for row in new_rows:
+        lines.append("-" * 40)
+        if row.get("_movie"):
+            lines.append(f"Movie: {row['_movie']}")
+        for key, value in row.items():
+            if key == "_movie":
+                continue
+            lines.append(f"{key}: {value}")
     return "\n".join(lines)
 
 
-def send_email(subject: str, html_body: str, plain_body: str) -> None:
+def send_email(subject: str, plain_body: str) -> None:
     if not (GMAIL_USER and GMAIL_APP_PASSWORD and GMAIL_TO):
         print("Missing GMAIL_USER, GMAIL_APP_PASSWORD, or GMAIL_TO env vars; skipping email.")
         return
@@ -184,7 +170,6 @@ def send_email(subject: str, html_body: str, plain_body: str) -> None:
     msg["From"] = GMAIL_USER
     msg["To"] = GMAIL_TO
     msg.set_content(plain_body)
-    msg.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
@@ -195,35 +180,33 @@ def send_email(subject: str, html_body: str, plain_body: str) -> None:
 
 def main() -> int:
     tables = fetch_structured_data(URL)
+    current_rows = flatten_rows(tables)
 
-    print("===== EXTRACTED TABLES (summary) =====")
-    for t in tables:
-        print(f"Heading: {t.get('heading')!r}, rows: {len(t['rows'])}")
-    print("===== END SUMMARY =====")
+    print(f"Extracted {len(current_rows)} row(s) from {len(tables)} table(s).")
 
-    current_snapshot = normalize_for_diff(tables)
-    previous_tables = load_previous_state()
+    previous_rows = load_previous_rows()
 
-    if previous_tables is None:
-        save_state(tables)
+    if previous_rows is None:
+        save_rows(current_rows)
         print("Baseline snapshot saved. No email sent on first run.")
         return 0
 
-    previous_snapshot = normalize_for_diff(previous_tables)
+    previous_keys = {identity_key(r) for r in previous_rows}
+    new_rows = [r for r in current_rows if identity_key(r) not in previous_keys]
 
-    if current_snapshot != previous_snapshot:
-        html_body = build_html_email(tables)
-        plain_body = build_plain_text_email(tables)
+    if new_rows:
+        body = build_plain_text_email(new_rows)
         send_email(
-            "New screening posted: Washington, DC (Advance Screenings)",
-            html_body,
-            plain_body,
+            f"{len(new_rows)} new screening(s): Washington, DC (Advance Screenings)",
+            body,
         )
-        save_state(tables)
-        print("Change detected, email sent, state updated.")
+        print(f"{len(new_rows)} new row(s) detected, email sent.")
     else:
-        print("No change detected.")
+        print("No new rows detected (only date labels or ordering may have changed).")
 
+    # Always resave current rows so "Added" drift and reordering don't
+    # accumulate into an ever-growing diff, and so removed rows drop out.
+    save_rows(current_rows)
     return 0
 
 
