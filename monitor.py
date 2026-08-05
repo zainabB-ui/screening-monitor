@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 """
-Monitors an Advance Screenings city page for new screening postings
-and emails an alert via Gmail SMTP when the listings section changes.
+Monitors the Advance Screenings Washington, DC city page for new screening
+postings and emails an alert via Gmail SMTP when the listings table changes.
 
-Designed to run from GitHub Actions on a schedule. State (the last
-seen content) is persisted to state.txt and committed back to the repo
-by the workflow, so each run compares against the previous run's snapshot.
+IMPORTANT: This page renders its listings via client-side JavaScript, so a
+plain requests.get() only sees a static shell (often a stale "No screenings
+found" placeholder) even when real screenings exist. This script uses
+Playwright (headless Chromium) to fully render the page before reading it.
+
+DEBUGGING: Every run saves debug_screenshot.png and debug_page.html as
+workflow artifacts (see check_screenings.yml) so you can visually confirm
+whether Playwright is seeing real listings, a placeholder, or a bot-block
+page. Check these first if you suspect the script isn't picking up listings.
+
+Designed to run from GitHub Actions on a schedule. State (the last seen
+content) is persisted to state.txt and committed back to the repo by the
+workflow, so each run compares against the previous run's snapshot.
 """
 
 import os
@@ -14,37 +24,60 @@ import smtplib
 import difflib
 from email.message import EmailMessage
 
-import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 URL = "https://www.advancescreenings.com/city/us/dc/washington"
 STATE_FILE = "state.txt"
+DEBUG_SCREENSHOT = "debug_screenshot.png"
+DEBUG_HTML = "debug_page.html"
 
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 GMAIL_TO = os.environ.get("GMAIL_TO", GMAIL_USER)
 
 
-def fetch_page(url: str) -> str:
-    resp = requests.get(
-        url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; ScreeningMonitor/1.0)"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.text
+def fetch_rendered_html(url: str) -> str:
+    """Loads the page in headless Chromium, waits for JS-populated content,
+    and saves a screenshot + raw HTML for debugging before returning the
+    fully rendered HTML."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1366, "height": 900},
+        )
+
+        try:
+            page.goto(url, wait_until="networkidle", timeout=45000)
+        except Exception as e:
+            print(f"WARNING: networkidle wait failed or timed out: {e}")
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+
+        # Extra buffer for slow/late XHR calls that populate the table.
+        page.wait_for_timeout(5000)
+
+        page_title = page.title()
+        print(f"Page title after render: {page_title!r}")
+
+        page.screenshot(path=DEBUG_SCREENSHOT, full_page=True)
+        html = page.content()
+
+        with open(DEBUG_HTML, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        browser.close()
+        return html
 
 
 def extract_screenings_section(html: str) -> str:
     """
-    Isolates the part of the page that lists screenings (or the
-    'No screenings found' message), stripping nav/footer/ads/blog
-    links so unrelated site changes don't trigger false alerts.
-
-    Heuristic: the screenings content sits between the city heading
-    and the 'Upcoming Movies' block. If that marker isn't found
-    (e.g. the site redesigns), it falls back to the full page text
-    so you still get notified rather than silently missing changes.
+    Isolates the listings table for Washington, DC, stripping nav/footer/
+    ads/blog links so unrelated site changes don't trigger false alerts.
+    Falls back to full page text if the expected structure isn't found.
     """
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
@@ -59,12 +92,11 @@ def extract_screenings_section(html: str) -> str:
 
     start_marker = "Washington, DC"
     start_idx = full_text.find(start_marker)
-    if start_idx != -1:
-        start_idx = full_text.find(start_marker, start_idx + 1)
 
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         section = full_text[start_idx:end_idx].strip()
     else:
+        print("WARNING: Could not locate expected section markers; using full page text.")
         section = full_text
 
     return section
@@ -111,12 +143,16 @@ def build_diff(old: str, new: str) -> str:
 
 
 def main() -> int:
-    html = fetch_page(URL)
+    html = fetch_rendered_html(URL)
     current_section = extract_screenings_section(html)
+
+    print("===== CAPTURED CONTENT (first 2000 chars) =====")
+    print(current_section[:2000])
+    print("===== END CAPTURED CONTENT =====")
+
     previous_section = load_previous_state()
 
     if not previous_section:
-        # First run ever: just establish baseline, no alert.
         save_state(current_section)
         print("Baseline snapshot saved. No email sent on first run.")
         return 0
