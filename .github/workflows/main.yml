@@ -1,3 +1,4 @@
+
 name: Check Advance Screenings DC page
 
 on:
@@ -6,8 +7,7 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
-permissions:
-  contents: write   # needed so the workflow can commit the updated state.txt
+permissions: write-all
 
 jobs:
   check:
@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright beautifulsoup4
+          pip install playwright
           python -m playwright install --with-deps chromium
 
       - name: Run monitor script
@@ -33,10 +33,6 @@ jobs:
           GMAIL_TO: ${{ secrets.GMAIL_TO }}
         run: python monitor.py
 
-      # Uploads a screenshot + raw HTML of what Playwright actually saw,
-      # so you can open them and check whether it captured real listings,
-      # a placeholder message, or a bot-blocked page. Available for 7 days
-      # under the "Summary" tab of each workflow run.
       - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -45,15 +41,17 @@ jobs:
           path: |
             debug_screenshot.png
             debug_page.html
+            debug_tables.json
           retention-days: 7
 
       - name: Commit updated state
         run: |
           git config user.name "screenings-bot"
           git config user.email "actions@github.com"
-          if [ -n "$(git status --porcelain state.txt)" ]; then
-            git add state.txt
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git add state.json
             git commit -m "Update snapshot [skip ci]"
+            git pull --rebase origin main
             git push
           else
             echo "No state change to commit."
