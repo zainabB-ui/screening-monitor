@@ -4,28 +4,28 @@
     "City": "Woodbridge, VA",
     "Outlet": "Alamo Drafthouse Cinema",
     "Screening Type": "Purchase Tickets",
-    "_movie": "PAW Patrol: The Dino \u00a0Movie"
+    "_movie": "PAW Patrol: The Dino Movie"
   },
   {
     "Added": "13 days ago",
     "City": "Ashburn, VA",
     "Outlet": "Alamo Drafthouse Cinema",
     "Screening Type": "Purchase Tickets",
-    "_movie": "PAW Patrol: The Dino \u00a0Movie"
+    "_movie": "PAW Patrol: The Dino Movie"
   },
   {
     "Added": "13 days ago",
     "City": "Arlington, VA",
     "Outlet": "Alamo Drafthouse Cinema",
     "Screening Type": "Purchase Tickets",
-    "_movie": "PAW Patrol: The Dino \u00a0Movie"
+    "_movie": "PAW Patrol: The Dino Movie"
   },
   {
     "Added": "13 days ago",
     "City": "Washington, DC",
     "Outlet": "Alamo Drafthouse Cinema",
     "Screening Type": "Purchase Tickets",
-    "_movie": "PAW Patrol: The Dino \u00a0Movie"
+    "_movie": "PAW Patrol: The Dino Movie"
   },
   {
     "Added": "yesterday",
@@ -35,14 +35,14 @@
     "_movie": "PAW Patrol: The Dino Movie"
   },
   {
-    "Added": "3 days ago",
+    "Added": "4 days ago",
     "City": "Hanover, MD",
     "Outlet": "facebook.com",
     "Screening Type": "Contest",
     "_movie": "PAW Patrol: The Dino Movie"
   },
   {
-    "Added": "3 days ago",
+    "Added": "4 days ago",
     "City": "Hanover, MD",
     "Outlet": "Atomic Fangirl",
     "Screening Type": "Redeem Link or Code",
@@ -63,14 +63,14 @@
     "_movie": "PAW Patrol: The Dino Movie"
   },
   {
-    "Added": "5 days ago",
+    "Added": "6 days ago",
     "City": "Hanover, MD",
     "Outlet": "Cinemit",
     "Screening Type": "Redeem Link or Code",
     "_movie": "PAW Patrol: The Dino Movie"
   },
   {
-    "Added": "5 days ago",
+    "Added": "6 days ago",
     "City": "Alexandria, VA",
     "Outlet": "Cinemit",
     "Screening Type": "Redeem Link or Code",
@@ -110,6 +110,27 @@
     "Outlet": "Gofobo",
     "Screening Type": "Redeem Link or Code",
     "_movie": "PAW Patrol: The Dino Movie"
+  },
+  {
+    "Added": "9 hours ago",
+    "City": "Silver Spring, MD",
+    "Outlet": "Gofobo",
+    "Screening Type": "Redeem Link or Code",
+    "_movie": "The End of Oak Street"
+  },
+  {
+    "Added": "9 hours ago",
+    "City": "Silver Spring, MD",
+    "Outlet": "Punch Drunk Critics",
+    "Screening Type": "Redeem Link or Code",
+    "_movie": "The End of Oak Street"
+  },
+  {
+    "Added": "9 hours ago",
+    "City": "Silver Spring, MD",
+    "Outlet": "Mind on Movies",
+    "Screening Type": "Redeem Link or Code",
+    "_movie": "The End of Oak Street"
   },
   {
     "Added": "6 days ago",
@@ -126,6 +147,20 @@
     "_movie": "Tony"
   },
   {
+    "Added": "8 hours ago",
+    "City": "McLean, VA",
+    "Outlet": "Lyles Movie Files",
+    "Screening Type": "Redeem Link or Code",
+    "_movie": "Lion"
+  },
+  {
+    "Added": "8 hours ago",
+    "City": "McLean, VA",
+    "Outlet": "Cinemit",
+    "Screening Type": "Redeem Link or Code",
+    "_movie": "Lion"
+  },
+  {
     "Added": "5 days ago",
     "City": "McLean, VA",
     "Outlet": "Mind on Movies",
@@ -133,7 +168,7 @@
     "_movie": "Lion"
   },
   {
-    "Added": "5 days ago",
+    "Added": "6 days ago",
     "City": "McLean, VA",
     "Outlet": "BeautifulBallad",
     "Screening Type": "Contest",
